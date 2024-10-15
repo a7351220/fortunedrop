@@ -1,0 +1,5 @@
+{
+  "/page": "app/page.js",
+  "/my-red-packets/page": "app/my-red-packets/page.js",
+  "/redpacket/[id]/page": "app/redpacket/[id]/page.js"
+}

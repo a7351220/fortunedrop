@@ -1,10 +1,14 @@
 "use client";
 
-import { createContext, useContext, ReactNode, useEffect, useState } from "react";
+import { createContext, useContext, ReactNode, useEffect, useState, useMemo, useCallback } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useSignRawHash } from "@privy-io/react-auth/extended-chains";
 import { Aptos, AptosConfig, Ed25519PublicKey, Ed25519Signature, AccountAuthenticatorEd25519, generateSigningMessageForTransaction } from "@aptos-labs/ts-sdk";
 import { toHex } from "viem";
+
+// Create Aptos client singleton outside component to avoid recreation
+const fullnodeUrl = process.env.NEXT_PUBLIC_FULLNODE_URL || "https://testnet.bardock.movementnetwork.xyz/v1";
+const aptos = new Aptos(new AptosConfig({ fullnode: fullnodeUrl }));
 
 interface MovementWallet {
   address: string | null;
@@ -40,100 +44,98 @@ export function MovementPrivyWalletProvider({ children }: { children: ReactNode 
   const { signRawHash } = useSignRawHash();
   const [selectedWalletAddress, setSelectedWalletAddress] = useState<string | null>(null);
 
-  // Setup Aptos client for Movement
-  const fullnodeUrl = process.env.NEXT_PUBLIC_FULLNODE_URL || "https://testnet.bardock.movementnetwork.xyz/v1";
-  const aptos = new Aptos(new AptosConfig({ fullnode: fullnodeUrl }));
+  // Helper to check if account is a wallet
+  const isWalletAccount = (acc: any): acc is { type: 'wallet', address: string, chainType?: string, chain_type?: string, walletClientType?: string } => {
+    return acc.type === 'wallet' && typeof acc.address === 'string';
+  };
 
-  // Debug: log user's linked accounts
-  console.log('[Provider] User info:', {
-    ready,
-    authenticated,
-    userId: user?.id,
-    linkedAccounts: user?.linkedAccounts?.length || 0,
-    linkedAccountsDetails: user?.linkedAccounts?.map(acc => ({
-      type: acc.type,
-      address: (acc as any).address,
-      chainType: (acc as any).chainType,
-      chain_type: (acc as any).chain_type,
-      walletClient: (acc as any).walletClient,
-      walletClientType: (acc as any).walletClientType
-    }))
-  });
+  // Memoize unique wallets to avoid recalculation on every render
+  const uniqueWallets = useMemo(() => {
+    // Get all wallets from both useWallets() and user.linkedAccounts
+    // Note: ConnectedWallet from useWallets() doesn't have chainType, only 'type'
+    // So we can't filter by chain type here, we get all wallets from hook
+    const walletsFromHook = wallets.map(w => ({
+      ...w,
+      // Add a flag to identify source
+      _source: 'hook' as const
+    }));
 
-  // Get all wallets from both useWallets() and user.linkedAccounts
-  let allAvailableWallets: any[] = [];
-  
-  // From useWallets() hook
-  const walletsFromHook = wallets.filter((w) => {
-    const chainType = w.chainType || (w as any).chain_type;
-    const walletClientType = (w as any).walletClientType;
-    return (chainType === "aptos" || chainType === "movement") || walletClientType === "privy";
-  });
+    // From user.linkedAccounts (embedded wallets) - with proper type guard
+    // WalletWithMetadata has chainType field
+    const embeddedWallets = (user?.linkedAccounts || [])
+      .filter(isWalletAccount)
+      .filter(acc => {
+        const wallet = acc as any;
+        const chainType = wallet.chainType;
+        const walletClientType = wallet.walletClientType;
+        // Filter for Aptos/Movement wallets or Privy embedded wallets
+        return (chainType === "aptos" || chainType === "movement") || walletClientType === "privy";
+      })
+      .map(w => ({
+        ...w,
+        _source: 'linkedAccount' as const
+      }));
 
-  // From user.linkedAccounts (embedded wallets)
-  const embeddedWallets = (user?.linkedAccounts || [])
-    .filter(acc => {
-      const isWallet = acc.type === 'wallet';
-      const chainType = (acc as any).chainType || (acc as any).chain_type;
-      const walletClientType = (acc as any).walletClientType;
-      return isWallet && ((chainType === "aptos" || chainType === "movement") || walletClientType === "privy");
-    });
+    const allWallets = [...walletsFromHook, ...embeddedWallets];
 
-  allAvailableWallets = [...walletsFromHook, ...embeddedWallets];
+    // Remove duplicates by address
+    return allWallets.reduce((acc, wallet) => {
+      const address = 'address' in wallet ? wallet.address : null;
+      if (address && !acc.find((w: any) => {
+        const wAddr = 'address' in w ? w.address : null;
+        return wAddr === address;
+      })) {
+        acc.push(wallet);
+      }
+      return acc;
+    }, [] as any[]);
+  }, [wallets, user?.linkedAccounts]);
 
-  // Remove duplicates by address
-  const uniqueWallets = allAvailableWallets.reduce((acc, wallet) => {
-    const address = wallet.address || (wallet as any).address;
-    if (!acc.find((w: any) => (w.address || (w as any).address) === address)) {
-      acc.push(wallet);
-    }
-    return acc;
-  }, [] as any[]);
+  // Helper to get wallet address safely
+  const getWalletAddress = (wallet: any): string | null => {
+    return 'address' in wallet ? wallet.address : null;
+  };
 
-  console.log('[Provider] Wallet summary:', {
-    walletsFromHook: walletsFromHook.length,
-    embeddedWallets: embeddedWallets.length,
-    uniqueWallets: uniqueWallets.length,
-    details: uniqueWallets.map(w => ({
-      address: w.address || (w as any).address,
-      chainType: w.chainType || (w as any).chainType,
-      walletClientType: (w as any).walletClientType
-    }))
-  });
-
-  // Auto-select wallet: prefer selected, then latest
-  let currentWallet = null;
-  if (uniqueWallets.length > 0) {
+  // Memoize current wallet selection
+  const currentWallet = useMemo(() => {
+    if (uniqueWallets.length === 0) return null;
+    
     if (selectedWalletAddress) {
-      currentWallet = uniqueWallets.find(w => (w.address || (w as any).address) === selectedWalletAddress) || uniqueWallets[uniqueWallets.length - 1];
-    } else {
-      currentWallet = uniqueWallets[uniqueWallets.length - 1];
+      const found = uniqueWallets.find(w => getWalletAddress(w) === selectedWalletAddress);
+      return found || uniqueWallets[uniqueWallets.length - 1];
     }
-  }
+    
+    return uniqueWallets[uniqueWallets.length - 1];
+  }, [uniqueWallets, selectedWalletAddress]);
 
-  const selectWallet = (address: string) => {
+  // Memoize selectWallet callback
+  const selectWallet = useCallback((address: string) => {
     setSelectedWalletAddress(address);
     if (typeof window !== 'undefined') {
       localStorage.setItem('privy_selected_wallet', address);
     }
-  };
+  }, []);
 
   // Load selected wallet from localStorage on mount
   useEffect(() => {
-    if (typeof window !== 'undefined' && !selectedWalletAddress && uniqueWallets.length > 0) {
-      const stored = localStorage.getItem('privy_selected_wallet');
-      if (stored && uniqueWallets.find(w => (w.address || (w as any).address) === stored)) {
-        setSelectedWalletAddress(stored);
-      }
+    if (typeof window === 'undefined' || selectedWalletAddress || uniqueWallets.length === 0) return;
+    
+    const stored = localStorage.getItem('privy_selected_wallet');
+    if (stored && uniqueWallets.some(w => getWalletAddress(w) === stored)) {
+      setSelectedWalletAddress(stored);
     }
-  }, [uniqueWallets.length, selectedWalletAddress]);
+  }, [uniqueWallets, selectedWalletAddress]);
 
-  const signAndSubmitTransaction = async (payload: any) => {
+  const signAndSubmitTransaction = useCallback(async (payload: any) => {
     if (!currentWallet || !authenticated) {
       throw new Error("錢包未連接");
     }
 
-    const walletAddress = currentWallet.address || (currentWallet as any).address;
+    const walletAddress = getWalletAddress(currentWallet);
+    if (!walletAddress) {
+      throw new Error("無法取得錢包地址");
+    }
+
     const publicKey = (currentWallet as any).public_key || (currentWallet as any).publicKey;
 
     if (!publicKey) {
@@ -141,8 +143,6 @@ export function MovementPrivyWalletProvider({ children }: { children: ReactNode 
     }
 
     try {
-      console.log('[Provider] Building transaction for:', walletAddress);
-      
       // 1. Build the raw transaction
       const rawTxn = await aptos.transaction.build.simple({
         sender: walletAddress,
@@ -153,8 +153,6 @@ export function MovementPrivyWalletProvider({ children }: { children: ReactNode 
       // 2. Generate signing message hash
       const message = generateSigningMessageForTransaction(rawTxn);
       const messageHex = toHex(message);
-
-      console.log('[Provider] Signing hash with Privy embedded wallet...');
       
       // 3. Sign the hash using Privy's signRawHash
       const signatureResponse = await signRawHash({
@@ -165,17 +163,12 @@ export function MovementPrivyWalletProvider({ children }: { children: ReactNode 
 
       const signature = signatureResponse.signature;
 
-      console.log('[Provider] Signature received');
-      console.log('[Provider] Public key (raw):', publicKey);
-      console.log('[Provider] Public key length:', publicKey.replace('0x', '').length);
-
       // 4. Parse public key - Privy may include a prefix byte
       let cleanPublicKey = publicKey.replace('0x', '');
       
       // If public key is 66 chars (33 bytes), remove the first byte (prefix)
       if (cleanPublicKey.length === 66) {
-        cleanPublicKey = cleanPublicKey.slice(2); // Remove first byte
-        console.log('[Provider] Removed prefix byte from public key');
+        cleanPublicKey = cleanPublicKey.slice(2);
       }
       
       // Ed25519 public key should be 64 hex chars (32 bytes)
@@ -183,38 +176,32 @@ export function MovementPrivyWalletProvider({ children }: { children: ReactNode 
         throw new Error(`Invalid public key length: ${cleanPublicKey.length} (expected 64)`);
       }
 
-      console.log('[Provider] Clean public key:', cleanPublicKey);
-
       // 5. Create authenticator and submit
       const senderAuthenticator = new AccountAuthenticatorEd25519(
         new Ed25519PublicKey(cleanPublicKey),
         new Ed25519Signature(signature.replace('0x', ''))
       );
 
-      console.log('[Provider] Submitting transaction...');
-
       const committedTxn = await aptos.transaction.submit.simple({
         transaction: rawTxn,
         senderAuthenticator,
       });
-
-      console.log('[Provider] Transaction submitted:', committedTxn.hash);
 
       // 6. Wait for transaction
       const executedTransaction = await aptos.waitForTransaction({
         transactionHash: committedTxn.hash,
       });
 
-      console.log('[Provider] Transaction confirmed!');
-
       return { hash: executedTransaction.hash };
     } catch (error) {
-      console.error("[Provider] Transaction failed:", error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error("[Provider] Transaction failed:", error);
+      }
       throw error;
     }
-  };
+  }, [currentWallet, authenticated, signRawHash]);
 
-  const disconnect = async () => {
+  const disconnect = useCallback(async () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('privy_movement_wallet');
       localStorage.removeItem('privy_selected_wallet');
@@ -222,28 +209,33 @@ export function MovementPrivyWalletProvider({ children }: { children: ReactNode 
     try {
       await logout();
     } catch (error) {
-      console.error("Logout error:", error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error("Logout error:", error);
+      }
     } finally {
       if (typeof window !== 'undefined') {
         window.location.href = '/';
       }
     }
-  };
+  }, [logout]);
 
-  const walletAddress = currentWallet ? (currentWallet.address || (currentWallet as any).address) : null;
-  const walletPublicKey = currentWallet ? ((currentWallet as any).public_key || (currentWallet as any).publicKey) : null;
+  // Memoize context value to avoid unnecessary re-renders
+  const value = useMemo<MovementWallet>(() => {
+    const walletAddress = currentWallet ? getWalletAddress(currentWallet) : null;
+    const walletPublicKey = currentWallet ? ((currentWallet as any).public_key || (currentWallet as any).publicKey) : null;
 
-  const value: MovementWallet = {
-    address: walletAddress,
-    publicKey: walletPublicKey,
-    connected: !!currentWallet && authenticated,
-    isLoading: !ready,
-    allWallets: uniqueWallets,
-    selectedWallet: currentWallet,
-    selectWallet,
-    signAndSubmitTransaction,
-    disconnect,
-  };
+    return {
+      address: walletAddress,
+      publicKey: walletPublicKey,
+      connected: !!currentWallet && authenticated,
+      isLoading: !ready,
+      allWallets: uniqueWallets,
+      selectedWallet: currentWallet,
+      selectWallet,
+      signAndSubmitTransaction,
+      disconnect,
+    };
+  }, [currentWallet, authenticated, ready, uniqueWallets, selectWallet, signAndSubmitTransaction, disconnect]);
 
   return (
     <MovementWalletContext.Provider value={value}>

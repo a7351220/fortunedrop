@@ -18,10 +18,13 @@ export function PrivyAuthProvider({ children }: PropsWithChildren) {
       appId={PRIVY_APP_ID}
       config={{
         embeddedWallets: {
-          // Create embedded wallet on login to ensure it's available
-          createOnLogin: "users-without-wallets",
-          // Require manual approval for transactions
-          requireUserPasswordOnCreate: false,
+          // Configure for Ethereum (if needed)
+          // ethereum: {
+          //   createOnLogin: "users-without-wallets",
+          // },
+          // Note: Aptos/Movement embedded wallets are created via extended-chains API
+          // So we don't configure createOnLogin here for those chains
+          showWalletUIs: true,
         },
         // Enable Aptos/Movement support
         supportedChains: [

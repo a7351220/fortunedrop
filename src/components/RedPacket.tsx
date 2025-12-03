@@ -71,7 +71,7 @@ export function RedPacket({ onClose, onCreateSuccess }: RedPacketProps) {
               type="number"
               step="0.01"
               min="0"
-              placeholder="A P T"
+              placeholder="MOVE"
               onChange={(e) => {
                 const value = e.target.value;
                 setTotalAmount(value === '' ? undefined : Math.max(0, Number(value)));

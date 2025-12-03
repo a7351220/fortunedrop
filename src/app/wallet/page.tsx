@@ -11,43 +11,47 @@ import { motion } from "framer-motion";
 import { toast } from "@/components/ui/use-toast";
 
 export default function WalletPage() {
-  const { address, allWallets, connected, disconnect, selectWallet, isLoading } = useMovementWallet();
+  const { address, allWallets, disconnect, selectWallet, isLoading } = useMovementWallet();
   const { user, authenticated, ready } = usePrivy();
   const [balance, setBalance] = useState<string | null>(null);
 
-  console.log('[Wallet Page] Current state:', {
-    address,
-    allWalletsCount: allWallets.length,
-    connected,
-    authenticated,
-    ready,
-    isLoading
-  });
-
   useEffect(() => {
+    if (!address) return;
+
+    let isMounted = true;
+
     async function fetchBalance() {
-      if (address) {
-        try {
-          const resources = await aptosClient().getAccountResources({
-            accountAddress: address,
-          });
-          const accountResource = resources.find(
-            (r) => r.type === "0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>"
-          );
+      try {
+        const resources = await aptosClient().getAccountResources({
+          accountAddress: address!,
+        });
+        const accountResource = resources.find(
+          (r) => r.type === "0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>"
+        );
+        
+        if (isMounted) {
           if (accountResource) {
             const balanceValue = (accountResource.data as any).coin.value;
             setBalance((Number(balanceValue) / 100000000).toFixed(8));
           } else {
             setBalance("0");
           }
-        } catch (error) {
-          console.error("Failed to fetch balance:", error);
+        }
+      } catch (error) {
+        if (isMounted) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.error("Failed to fetch balance:", error);
+          }
           setBalance("無法取得");
         }
       }
     }
 
     fetchBalance();
+
+    return () => {
+      isMounted = false;
+    };
   }, [address]);
 
   const handleCopyAddress = () => {
@@ -189,36 +193,8 @@ export default function WalletPage() {
                     餘額
                   </p>
                   <p className="text-yellow-100 text-2xl font-bold" style={{ fontFamily: "'Noto Serif TC', serif" }}>
-                    {balance !== null ? `${balance} APT` : "載入中..."}
+                    {balance !== null ? `${balance} MOVE` : "載入中..."}
                   </p>
-                </div>
-
-                {/* Wallet Security Info */}
-                <div className="bg-red-800 bg-opacity-50 p-4 rounded-lg">
-                  <p className="text-yellow-100 text-sm mb-4" style={{ fontFamily: "'Noto Serif TC', serif" }}>
-                    錢包安全
-                  </p>
-                  <div className="space-y-3">
-                    <div className="bg-green-600 bg-opacity-20 p-3 rounded border border-green-400/30">
-                      <p className="text-green-200 text-xs mb-2 font-bold" style={{ fontFamily: "'Noto Serif TC', serif" }}>
-                        ✓ 你的錢包已安全儲存
-                      </p>
-                      <p className="text-yellow-100 text-xs leading-relaxed" style={{ fontFamily: "'Noto Serif TC', serif" }}>
-                        Movement 錢包由 Privy 安全管理，使用業界標準的加密技術保護。你可以隨時使用相同帳號登入來存取你的錢包。
-                      </p>
-                    </div>
-                    <div className="bg-yellow-600 bg-opacity-20 p-3 rounded">
-                      <p className="text-yellow-200 text-xs mb-2" style={{ fontFamily: "'Noto Serif TC', serif" }}>
-                        ⚠️ 關於私鑰匯出
-                      </p>
-                      <p className="text-yellow-100 text-xs leading-relaxed mb-2" style={{ fontFamily: "'Noto Serif TC', serif" }}>
-                        由於技術限制，Movement/Aptos 錢包目前無法直接透過網頁匯出私鑰。
-                      </p>
-                      <p className="text-yellow-100 text-xs leading-relaxed" style={{ fontFamily: "'Noto Serif TC', serif" }}>
-                        如需備份錢包，請確保你能隨時登入此 Privy 帳號。建議啟用雙重驗證(MFA)以提高安全性。
-                      </p>
-                    </div>
-                  </div>
                 </div>
 
                 {/* Disconnect */}

@@ -83,13 +83,13 @@ export default function MyRedPacketsPage() {
                 >
                   <Image
                     src="/images/red-packet-icon.png"
-                    alt={`紅包 #${redPacket.id}`}
+                    alt="紅包"
                     width={100}
                     height={100}
                     className="mx-auto"
                   />
-                  <p className="text-center text-yellow-100 mt-2" style={{ fontFamily: "'Noto Serif TC', serif" }}>
-                    紅包 #{redPacket.id}
+                  <p className="text-center text-yellow-100 mt-2 text-sm" style={{ fontFamily: "'Noto Serif TC', serif" }}>
+                    {redPacket.totalAmount / 100000000} MOVE
                   </p>
                 </motion.div>
               ))}
@@ -123,10 +123,10 @@ export default function MyRedPacketsPage() {
                 <div className="absolute inset-0 bg-[url('/images/paper-texture.png')] opacity-30 mix-blend-overlay rounded-3xl"></div>
                 <div className="relative z-10 text-center">
                   <h2 className="text-2xl font-bold text-yellow-100 mb-4" style={{ fontFamily: "'Noto Serif TC', serif" }}>
-                    紅包 #{selectedPacket.id}
+                    紅包詳情
                   </h2>
-                  <p className="text-yellow-100" style={{ fontFamily: "'Noto Serif TC', serif" }}>總金額: {selectedPacket.totalAmount / 100000000} APT</p>
-                  <p className="text-yellow-100" style={{ fontFamily: "'Noto Serif TC', serif" }}>剩餘金額: {selectedPacket.remainingAmount / 100000000} APT</p>
+                  <p className="text-yellow-100" style={{ fontFamily: "'Noto Serif TC', serif" }}>總金額: {selectedPacket.totalAmount / 100000000} MOVE</p>
+                  <p className="text-yellow-100" style={{ fontFamily: "'Noto Serif TC', serif" }}>剩餘金額: {selectedPacket.remainingAmount / 100000000} MOVE</p>
                   <p className="text-yellow-100" style={{ fontFamily: "'Noto Serif TC', serif" }}>領取情況: {selectedPacket.remainingCount} / {selectedPacket.recipientCount}</p>
                   <p className="text-yellow-100 mt-4" style={{ fontFamily: "'Noto Serif TC', serif" }}>
                     <a href={`${window.location.origin}/redpacket/${selectedPacket.id}`} 

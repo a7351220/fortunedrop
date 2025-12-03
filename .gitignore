@@ -56,3 +56,5 @@ contract/.aptos/
 
 # Cursor
 .cursor
+
+./.aptos

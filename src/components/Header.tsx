@@ -1,7 +1,13 @@
-import { WalletSelector } from "./WalletSelector";
+"use client";
+
 import Link from 'next/link';
 import Image from 'next/image';
+import { useMovementWallet } from "./MovementPrivyWalletProvider";
+import { Button } from "./ui/button";
+
 export function Header() {
+  const { address, connected } = useMovementWallet();
+
   return (
     <header className="bg-red-700 p-4 flex justify-between items-center relative overflow-hidden
                        border-b-4 border-yellow-400 shadow-lg">
@@ -19,7 +25,16 @@ export function Header() {
                 style={{ fontFamily: "'Noto Serif TC', serif" }}>
             我的紅包
           </Link>
-          <WalletSelector />
+          {connected && address && (
+            <Link href="/wallet">
+              <Button 
+                className="bg-yellow-400 hover:bg-yellow-300 text-red-700 font-bold"
+                style={{ fontFamily: "'Noto Serif TC', serif" }}
+              >
+                {address.slice(0, 6)}...{address.slice(-4)}
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
     </header>

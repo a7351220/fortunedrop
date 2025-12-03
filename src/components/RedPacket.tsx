@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { useWallet } from "@aptos-labs/wallet-adapter-react";
+import { useMovementWallet } from "@/components/MovementPrivyWalletProvider";
 import { toast } from "@/components/ui/use-toast";
 import { aptosClient } from "@/utils/aptosClient";
 import { Button } from "@/components/ui/button";
 import { createRedPacket } from "@/entry-functions/createRedPacket";
 import { getLatestRedPacketId } from "@/view-functions/getRedPacketInfo";
 import { motion, AnimatePresence } from "framer-motion";
+import { QRCodeSVG } from "qrcode.react";
 
 const APT_TO_OCTA = 100000000; // 1 APT = 10^8 Octa
 
@@ -15,7 +16,7 @@ interface RedPacketProps {
 }
 
 export function RedPacket({ onClose, onCreateSuccess }: RedPacketProps) {
-  const { account, signAndSubmitTransaction } = useWallet();
+  const { address, signAndSubmitTransaction } = useMovementWallet();
 
   const [totalAmount, setTotalAmount] = useState<number>();
   const [recipientCount, setRecipientCount] = useState<number>();
@@ -26,7 +27,7 @@ export function RedPacket({ onClose, onCreateSuccess }: RedPacketProps) {
   const [copiedLink, setCopiedLink] = useState(false);
 
   const handleCreateRedPacket = async () => {
-    if (!account || !totalAmount || !recipientCount || !password) return;
+    if (!address || !totalAmount || !recipientCount || !password) return;
 
     try {
       const totalAmountOcta = Math.floor(totalAmount * APT_TO_OCTA);
@@ -42,7 +43,7 @@ export function RedPacket({ onClose, onCreateSuccess }: RedPacketProps) {
       const link = `${window.location.origin}/redpacket/${latestRedPacketId}`;
       setRedPacketLink(link);
 
-      localStorage.setItem('lastCreatorAddress', account.address);
+      localStorage.setItem('lastCreatorAddress', address);
 
       setShowSuccessNotification(true);
     } catch (error) {
@@ -127,12 +128,12 @@ export function RedPacket({ onClose, onCreateSuccess }: RedPacketProps) {
           </div>
           <Button 
             onClick={handleCreateRedPacket} 
-            disabled={!account || !totalAmount || !recipientCount || !password}
+            disabled={!address || !totalAmount || !recipientCount || !password}
             className={`
               w-full font-bold rounded-full shadow-md transform hover:scale-105 transition-all duration-300
               focus:ring-2 focus:ring-yellow-400/50 focus:outline-none
               text-lg md:text-xl py-3 relative overflow-hidden
-              ${!account || !totalAmount || !recipientCount || !password 
+              ${!address || !totalAmount || !recipientCount || !password 
                 ? 'opacity-70 cursor-not-allowed' 
                 : 'hover:from-yellow-300 hover:to-yellow-200 shadow-red-900/30'}
               bg-gradient-to-r from-yellow-400 to-yellow-300 text-red-700
@@ -163,43 +164,58 @@ export function RedPacket({ onClose, onCreateSuccess }: RedPacketProps) {
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: "100%", opacity: 0 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="bg-gradient-to-br from-red-600 to-red-700 p-6 rounded-3xl shadow-lg w-80 mx-4 relative"
+              className="bg-gradient-to-br from-red-600 to-red-700 p-6 rounded-3xl shadow-lg w-full max-w-md mx-4 relative max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="absolute inset-0 bg-[url('/images/paper-texture.png')] opacity-30 mix-blend-overlay rounded-3xl"></div>
               <div className="relative z-10 text-center">
-                <h2 className="text-3xl font-bold text-yellow-100 mb-4" style={{ 
+                <h2 className="text-2xl font-bold text-yellow-100 mb-3" style={{ 
               fontFamily: "'Noto Serif TC', serif",
-              fontSize: '1.5rem',
               fontWeight: 700
             }}>
-                  紅包創建成功！
+                  🧧 紅包創建成功！
                 </h2>
-                <p className="text-xl text-yellow-100 mb-4" style={{ 
+                <p className="text-lg text-yellow-100 mb-3" style={{ 
               fontFamily: "'Noto Serif TC', serif",
-              fontSize: '1.5rem',
-              fontWeight: 700
+              fontWeight: 600
             }}>
-                  分享此鏈接：
+                  掃描或分享鏈接：
                 </p>
-                <div className="flex items-center justify-center mb-4">
+                {/* QR Code */}
+                <div className="flex justify-center mb-4">
+                  <div className="bg-gradient-to-br from-yellow-400 to-yellow-500 p-3 rounded-xl shadow-lg border-4 border-red-700">
+                    <QRCodeSVG 
+                      value={redPacketLink}
+                      size={160}
+                      level="H"
+                      includeMargin={false}
+                      bgColor="#FEF3C7"
+                      fgColor="#991B1B"
+                    />
+                  </div>
+                </div>
+                
+                {/* Link and Copy Button */}
+                <div className="flex flex-col items-center gap-2 mb-3">
                   <input 
                     type="text" 
                     value={redPacketLink} 
                     readOnly 
-                    className="w-3/4 p-2 bg-red-700/50 text-yellow-100 rounded-l-lg border-yellow-400
-                               text-center text-sm overflow-ellipsis"
+                    className="w-full p-2 bg-red-700/50 text-yellow-100 rounded-lg border-2 border-yellow-400
+                               text-center text-xs break-all"
+                    style={{ fontFamily: "'Noto Serif TC', serif" }}
                   />
                   <button
                     onClick={handleCopyLink}
-                    className="bg-yellow-400 text-red-700 p-2 rounded-r-lg hover:bg-yellow-300 transition-colors duration-300"
+                    className="w-full bg-yellow-400 text-red-700 py-2 px-4 rounded-lg hover:bg-yellow-300 
+                               transition-colors duration-300 font-bold shadow-md"
                     style={{ 
                         fontFamily: "'Noto Serif TC', serif",
-                        fontSize: '1.5rem',
+                        fontSize: '1rem',
                         fontWeight: 700
                       }}
                   >
-                    {copiedLink ? "已複製" : "複製"}
+                    {copiedLink ? "✓ 已複製" : "📋 複製連結"}
                   </button>
                 </div>
                 <button 
@@ -208,13 +224,13 @@ export function RedPacket({ onClose, onCreateSuccess }: RedPacketProps) {
                     if (onCreateSuccess) onCreateSuccess();
                     if (onClose) onClose();
                   }}
-                  className="mt-4 bg-gradient-to-r from-yellow-400 to-yellow-300 text-red-700 
-                             hover:from-yellow-300 hover:to-yellow-200 font-bold rounded-full
+                  className="w-full mt-2 bg-gradient-to-r from-yellow-400 to-yellow-300 text-red-700 
+                             hover:from-yellow-300 hover:to-yellow-200 font-bold rounded-lg
                              shadow-md shadow-red-900/30 transform hover:scale-105 transition-all duration-300
-                             focus:ring-2 focus:ring-yellow-400/50 focus:outline-none py-2 px-6 wood-texture"
+                             focus:ring-2 focus:ring-yellow-400/50 focus:outline-none py-2 px-6"
                              style={{ 
                                 fontFamily: "'Noto Serif TC', serif",
-                                fontSize: '1.5rem',
+                                fontSize: '1rem',
                                 fontWeight: 700
                               }}
                 >

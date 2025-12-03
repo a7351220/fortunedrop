@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/Header";
+import { PrivyWalletButton } from "@/components/PrivyWalletButton";
 import { RedPacket } from "@/components/RedPacket";
-import { useWallet } from "@aptos-labs/wallet-adapter-react";
+import { useMovementWallet } from "@/components/MovementPrivyWalletProvider";
 import { motion, AnimatePresence } from "framer-motion";
 
 function App() {
-  const { connected } = useWallet();
+  const { connected } = useMovementWallet();
   const [isCreating, setIsCreating] = useState(false);
   const router = useRouter();
 
@@ -80,6 +81,9 @@ function App() {
                       }}>
                         請連接錢包或創建錢包
                       </p>
+                      <div className="flex justify-center">
+                        <PrivyWalletButton />
+                      </div>
                     </div>
                   )}
                 </div>

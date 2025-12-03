@@ -3,8 +3,9 @@ module red_packet_addr::red_packet {
     use aptos_framework::account;
     use aptos_framework::coin::{Self, Coin};
     use aptos_framework::aptos_coin::AptosCoin;
-    use aptos_framework::randomness;
     use aptos_framework::event;
+    use aptos_framework::timestamp;
+    use aptos_std::bcs;
     use aptos_std::table::{Self, Table};
     use std::hash;
     use std::vector;
@@ -17,24 +18,24 @@ module red_packet_addr::red_packet {
         recipient_count: u64,
         remaining_count: u64,
         recipients: Table<address, u64>,
-        password_hash: vector<u8>,
+        password_hash: vector<u8>
     }
 
     struct RedPacketTreasury has key {
         signer_cap: account::SignerCapability,
         coins: Coin<AptosCoin>,
         next_id: u64,
-        red_packets: Table<u64, address>,
+        red_packets: Table<u64, address>
     }
 
     struct CreatorRedPackets has key {
         red_packets: Table<u64, RedPacket>,
-        red_packet_count: u64,
+        red_packet_count: u64
     }
 
     struct RandomnessCommitment has key {
         revealed: bool,
-        value: u64,
+        value: u64
     }
 
     #[event]
@@ -42,7 +43,7 @@ module red_packet_addr::red_packet {
         creator: address,
         id: u64,
         total_amount: u64,
-        recipient_count: u64,
+        recipient_count: u64
     }
 
     #[event]
@@ -50,7 +51,7 @@ module red_packet_addr::red_packet {
         claimer: address,
         creator: address,
         id: u64,
-        amount: u64,
+        amount: u64
     }
 
     const E_INSUFFICIENT_BALANCE: u64 = 1;
@@ -65,14 +66,18 @@ module red_packet_addr::red_packet {
     const RED_PACKET_SEED: vector<u8> = b"RED_PACKET";
 
     fun init_module(resource_account: &signer) {
-        let (treasury_signer, treasury_cap) = account::create_resource_account(resource_account, RED_PACKET_SEED);
+        let (treasury_signer, treasury_cap) =
+            account::create_resource_account(resource_account, RED_PACKET_SEED);
         coin::register<AptosCoin>(&treasury_signer);
-        move_to(resource_account, RedPacketTreasury {
-            signer_cap: treasury_cap,
-            coins: coin::zero<AptosCoin>(),
-            next_id: 0,
-            red_packets: table::new(), 
-        });
+        move_to(
+            resource_account,
+            RedPacketTreasury {
+                signer_cap: treasury_cap,
+                coins: coin::zero<AptosCoin>(),
+                next_id: 0,
+                red_packets: table::new()
+            }
+        );
     }
 
     public entry fun create_red_packet(
@@ -82,8 +87,11 @@ module red_packet_addr::red_packet {
         password_hash: vector<u8>
     ) acquires RedPacketTreasury, CreatorRedPackets {
         let creator_addr = signer::address_of(creator);
-        
-        assert!(coin::balance<AptosCoin>(creator_addr) >= total_amount, E_INSUFFICIENT_BALANCE);
+
+        assert!(
+            coin::balance<AptosCoin>(creator_addr) >= total_amount,
+            E_INSUFFICIENT_BALANCE
+        );
         assert!(recipient_count > 0, E_INVALID_RECIPIENT_COUNT);
 
         let treasury = borrow_global_mut<RedPacketTreasury>(@red_packet_addr);
@@ -103,29 +111,30 @@ module red_packet_addr::red_packet {
             recipient_count,
             remaining_count: recipient_count,
             recipients: table::new(),
-            password_hash,
+            password_hash
         };
 
         if (!exists<CreatorRedPackets>(creator_addr)) {
-            move_to(creator, CreatorRedPackets {
-                red_packets: table::new(),
-                red_packet_count: 0,
-            });
+            move_to(
+                creator,
+                CreatorRedPackets { red_packets: table::new(), red_packet_count: 0 }
+            );
         };
 
         let creator_red_packets = borrow_global_mut<CreatorRedPackets>(creator_addr);
         table::add(&mut creator_red_packets.red_packets, red_packet_id, new_red_packet);
         creator_red_packets.red_packet_count = creator_red_packets.red_packet_count + 1;
 
-        event::emit(RedPacketCreatedEvent {
-            creator: creator_addr,
-            id: red_packet_id,
-            total_amount,
-            recipient_count,
-        });
+        event::emit(
+            RedPacketCreatedEvent {
+                creator: creator_addr,
+                id: red_packet_id,
+                total_amount,
+                recipient_count
+            }
+        );
     }
 
-    #[randomness]
     entry fun claim_red_packet(
         claimer: &signer,
         creator: address,
@@ -135,23 +144,32 @@ module red_packet_addr::red_packet {
         let claimer_addr = signer::address_of(claimer);
         assert!(exists<CreatorRedPackets>(creator), E_RED_PACKET_NOT_EXIST);
         let creator_red_packets = borrow_global_mut<CreatorRedPackets>(creator);
-        assert!(table::contains(&creator_red_packets.red_packets, red_packet_id), E_RED_PACKET_NOT_EXIST);
+        assert!(
+            table::contains(&creator_red_packets.red_packets, red_packet_id),
+            E_RED_PACKET_NOT_EXIST
+        );
 
-        let red_packet = table::borrow_mut(&mut creator_red_packets.red_packets, red_packet_id);
-        
+        let red_packet =
+            table::borrow_mut(&mut creator_red_packets.red_packets, red_packet_id);
+
         assert!(hash::sha3_256(password) == red_packet.password_hash, 1000);
 
-        let claim_amount = if (red_packet.remaining_count == 1) {
-            red_packet.remaining_amount
-        } else {
-            let random_seed = randomness::u64_range(1, red_packet.remaining_amount);
-            let max_amount = red_packet.remaining_amount - red_packet.remaining_count + 1;
-            if (random_seed > max_amount) {
-                max_amount
+        let claim_amount =
+            if (red_packet.remaining_count == 1) {
+                red_packet.remaining_amount
             } else {
-                random_seed
-            }
-        };
+                let random_seed =
+                    pseudo_random_seed(
+                        &red_packet.password_hash,
+                        claimer_addr,
+                        red_packet_id,
+                        red_packet.remaining_amount,
+                        red_packet.remaining_count
+                    );
+                let max_amount = red_packet.remaining_amount
+                    - red_packet.remaining_count + 1;
+                random_seed % max_amount + 1
+            };
 
         red_packet.remaining_amount = red_packet.remaining_amount - claim_amount;
         red_packet.remaining_count = red_packet.remaining_count - 1;
@@ -159,47 +177,60 @@ module red_packet_addr::red_packet {
 
         let treasury = borrow_global_mut<RedPacketTreasury>(@red_packet_addr);
         let coins_to_transfer = coin::extract(&mut treasury.coins, claim_amount);
-        
+
         if (!coin::is_account_registered<AptosCoin>(claimer_addr)) {
             coin::register<AptosCoin>(claimer);
         };
         coin::deposit(claimer_addr, coins_to_transfer);
 
-        event::emit(RedPacketClaimedEvent {
-            claimer: claimer_addr,
-            creator,
-            id: red_packet_id,
-            amount: claim_amount,
-        });
+        event::emit(
+            RedPacketClaimedEvent {
+                claimer: claimer_addr,
+                creator,
+                id: red_packet_id,
+                amount: claim_amount
+            }
+        );
     }
 
     fun verify_proof(proof: vector<u8>, commitment: vector<u8>): bool {
-
         hash::sha3_256(proof) == commitment
     }
 
-    public entry fun reveal_claim_entry(claimer: &signer, creator: address, red_packet_id: u64) acquires CreatorRedPackets, RedPacketTreasury, RandomnessCommitment {
+    public entry fun reveal_claim_entry(
+        claimer: &signer, creator: address, red_packet_id: u64
+    ) acquires CreatorRedPackets, RedPacketTreasury, RandomnessCommitment {
         reveal_claim_internal(claimer, creator, red_packet_id);
     }
 
-    fun reveal_claim_internal(claimer: &signer, creator: address, red_packet_id: u64) acquires CreatorRedPackets, RedPacketTreasury, RandomnessCommitment {
+    fun reveal_claim_internal(
+        claimer: &signer, creator: address, red_packet_id: u64
+    ) acquires CreatorRedPackets, RedPacketTreasury, RandomnessCommitment {
         let claimer_addr = signer::address_of(claimer);
-        assert!(exists<RandomnessCommitment>(claimer_addr), E_RANDOMNESS_COMMITMENT_NOT_EXIST);
+        assert!(
+            exists<RandomnessCommitment>(claimer_addr),
+            E_RANDOMNESS_COMMITMENT_NOT_EXIST
+        );
         let commitment = borrow_global_mut<RandomnessCommitment>(claimer_addr);
         assert!(!commitment.revealed, E_ALREADY_REVEALED);
 
         let creator_red_packets = borrow_global_mut<CreatorRedPackets>(creator);
-        let red_packet = table::borrow_mut(&mut creator_red_packets.red_packets, red_packet_id);
+        let red_packet =
+            table::borrow_mut(&mut creator_red_packets.red_packets, red_packet_id);
 
-        assert!(!table::contains(&red_packet.recipients, claimer_addr), E_ALREADY_CLAIMED);
+        assert!(
+            !table::contains(&red_packet.recipients, claimer_addr), E_ALREADY_CLAIMED
+        );
         assert!(red_packet.remaining_count > 0, E_NO_REMAINING_FUNDS);
 
-        let claim_amount = if (red_packet.remaining_count == 1) {
-            red_packet.remaining_amount
-        } else {
-            let max_amount = red_packet.remaining_amount - red_packet.remaining_count + 1;
-            commitment.value % max_amount + 1
-        };
+        let claim_amount =
+            if (red_packet.remaining_count == 1) {
+                red_packet.remaining_amount
+            } else {
+                let max_amount = red_packet.remaining_amount
+                    - red_packet.remaining_count + 1;
+                commitment.value % max_amount + 1
+            };
 
         red_packet.remaining_amount = red_packet.remaining_amount - claim_amount;
         red_packet.remaining_count = red_packet.remaining_count - 1;
@@ -207,7 +238,7 @@ module red_packet_addr::red_packet {
 
         let treasury = borrow_global_mut<RedPacketTreasury>(@red_packet_addr);
         let coins_to_transfer = coin::extract(&mut treasury.coins, claim_amount);
-        
+
         if (!coin::is_account_registered<AptosCoin>(claimer_addr)) {
             coin::register<AptosCoin>(claimer);
         };
@@ -215,31 +246,49 @@ module red_packet_addr::red_packet {
 
         commitment.revealed = true;
 
-        event::emit(RedPacketClaimedEvent {
-            claimer: claimer_addr,
-            creator,
-            id: red_packet_id,
-            amount: claim_amount,
-        });
+        event::emit(
+            RedPacketClaimedEvent {
+                claimer: claimer_addr,
+                creator,
+                id: red_packet_id,
+                amount: claim_amount
+            }
+        );
     }
 
     #[view]
-    public fun get_red_packet_info(red_packet_id: u64): (address, u64, u64, u64, u64) acquires RedPacketTreasury, CreatorRedPackets {
+    public fun get_red_packet_info(
+        red_packet_id: u64
+    ): (address, u64, u64, u64, u64) acquires RedPacketTreasury, CreatorRedPackets {
         let treasury = borrow_global<RedPacketTreasury>(@red_packet_addr);
-        assert!(table::contains(&treasury.red_packets, red_packet_id), E_RED_PACKET_NOT_EXIST);
-        
+        assert!(
+            table::contains(&treasury.red_packets, red_packet_id),
+            E_RED_PACKET_NOT_EXIST
+        );
+
         let creator = *table::borrow(&treasury.red_packets, red_packet_id);
         let creator_red_packets = borrow_global<CreatorRedPackets>(creator);
         let red_packet = table::borrow(&creator_red_packets.red_packets, red_packet_id);
-        
-        (creator, red_packet.total_amount, red_packet.remaining_amount, red_packet.recipient_count, red_packet.remaining_count)
+
+        (
+            creator,
+            red_packet.total_amount,
+            red_packet.remaining_amount,
+            red_packet.recipient_count,
+            red_packet.remaining_count
+        )
     }
 
     #[view]
-    public fun is_claimed(red_packet_id: u64, claimer: address): bool acquires RedPacketTreasury, CreatorRedPackets {
+    public fun is_claimed(
+        red_packet_id: u64, claimer: address
+    ): bool acquires RedPacketTreasury, CreatorRedPackets {
         let treasury = borrow_global<RedPacketTreasury>(@red_packet_addr);
-        assert!(table::contains(&treasury.red_packets, red_packet_id), E_RED_PACKET_NOT_EXIST);
-        
+        assert!(
+            table::contains(&treasury.red_packets, red_packet_id),
+            E_RED_PACKET_NOT_EXIST
+        );
+
         let creator = *table::borrow(&treasury.red_packets, red_packet_id);
         let creator_red_packets = borrow_global<CreatorRedPackets>(creator);
         let red_packet = table::borrow(&creator_red_packets.red_packets, red_packet_id);
@@ -252,7 +301,9 @@ module red_packet_addr::red_packet {
     }
 
     #[view]
-    public fun get_creator_red_packets(creator: address): vector<u64> acquires CreatorRedPackets, RedPacketTreasury {
+    public fun get_creator_red_packets(
+        creator: address
+    ): vector<u64> acquires CreatorRedPackets, RedPacketTreasury {
         if (!exists<CreatorRedPackets>(creator)) {
             return vector::empty()
         };
@@ -261,11 +312,51 @@ module red_packet_addr::red_packet {
         let red_packet_ids = vector::empty();
         let i = 0;
         while (i < treasury.next_id) {
-            if (table::contains(&treasury.red_packets, i) && *table::borrow(&treasury.red_packets, i) == creator) {
+            if (table::contains(&treasury.red_packets, i)
+                && *table::borrow(&treasury.red_packets, i) == creator) {
                 vector::push_back(&mut red_packet_ids, i);
             };
             i = i + 1;
         };
         red_packet_ids
     }
+
+    fun pseudo_random_seed(
+        password_hash: &vector<u8>,
+        claimer: address,
+        red_packet_id: u64,
+        remaining_amount: u64,
+        remaining_count: u64
+    ): u64 {
+        let seed = copy_bytes(password_hash);
+        vector::append(&mut seed, bcs::to_bytes(&claimer));
+        vector::append(&mut seed, bcs::to_bytes(&red_packet_id));
+        vector::append(&mut seed, bcs::to_bytes(&remaining_amount));
+        vector::append(&mut seed, bcs::to_bytes(&remaining_count));
+        vector::append(&mut seed, bcs::to_bytes(&timestamp::now_seconds()));
+        bytes_to_u64(hash::sha3_256(seed))
+    }
+
+    fun bytes_to_u64(bytes: vector<u8>): u64 {
+        let result = 0u64;
+        let i = 0;
+        while (i < 8) {
+            let byte_value = *vector::borrow(&bytes, i);
+            result = (result << 8) + (byte_value as u64);
+            i = i + 1;
+        };
+        result
+    }
+
+    fun copy_bytes(data: &vector<u8>): vector<u8> {
+        let copied = vector::empty<u8>();
+        let i = 0;
+        let len = vector::length(data);
+        while (i < len) {
+            vector::push_back(&mut copied, *vector::borrow(data, i));
+            i = i + 1;
+        };
+        copied
+    }
 }
+

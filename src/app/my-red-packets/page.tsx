@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useWallet } from "@aptos-labs/wallet-adapter-react";
+import { useMovementWallet } from "@/components/MovementPrivyWalletProvider";
 import { Header } from "@/components/Header";
 import { getRedPacketInfo } from "@/view-functions/getRedPacketInfo";
 import { aptosClient } from "@/utils/aptosClient";
@@ -18,15 +18,15 @@ interface RedPacket {
 }
 
 export default function MyRedPacketsPage() {
-  const { account } = useWallet();
+  const { address } = useMovementWallet();
   const [redPackets, setRedPackets] = useState<RedPacket[]>([]);
   const [selectedPacket, setSelectedPacket] = useState<RedPacket | null>(null);
 
   useEffect(() => {
-    if (account) {
-      fetchMyRedPackets(account.address);
+    if (address) {
+      fetchMyRedPackets(address);
     }
-  }, [account]);
+  }, [address]);
 
   const fetchMyRedPackets = async (address: string) => {
     try {

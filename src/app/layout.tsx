@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import { ReactQueryProvider } from "@/components/ReactQueryProvider";
-import { WalletProvider } from "@/components/WalletProvider";
+import { PrivyAuthProvider } from "@/components/PrivyAuthProvider";
+import { MovementPrivyWalletProvider } from "@/components/MovementPrivyWalletProvider";
 import { Toaster } from "@/components/ui/toaster";
-import { WrongNetworkAlert } from "@/components/WrongNetworkAlert";
 
 import "./globals.css";
 
@@ -42,13 +42,14 @@ export default function RootLayout({
         <style>{globalStyles}</style>
       </head>
       <body>
-        <WalletProvider>
-          <ReactQueryProvider>
-            <div id="root">{children}</div>
-            <WrongNetworkAlert />
-            <Toaster />
-          </ReactQueryProvider>
-        </WalletProvider>
+        <PrivyAuthProvider>
+          <MovementPrivyWalletProvider>
+            <ReactQueryProvider>
+              <div id="root">{children}</div>
+              <Toaster />
+            </ReactQueryProvider>
+          </MovementPrivyWalletProvider>
+        </PrivyAuthProvider>
       </body>
     </html>
   );

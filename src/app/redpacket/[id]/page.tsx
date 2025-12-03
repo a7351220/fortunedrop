@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useWallet } from "@aptos-labs/wallet-adapter-react";
+import { useMovementWallet } from "@/components/MovementPrivyWalletProvider";
 import { Header } from "@/components/Header";
 import { getRedPacketInfo } from "@/view-functions/getRedPacketInfo";
 import { motion, AnimatePresence } from "framer-motion";
@@ -15,7 +15,7 @@ export default function RedPacketPage() {
   const params = useParams();
   const router = useRouter();
   const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : null;
-  const { connected, account, signAndSubmitTransaction } = useWallet();
+  const { connected, address, signAndSubmitTransaction } = useMovementWallet();
   const [password, setPassword] = useState("");
   const [redPacketInfo, setRedPacketInfo] = useState<any>(null);
   const [showSuccessEffect, setShowSuccessEffect] = useState(false);
@@ -35,7 +35,7 @@ export default function RedPacketPage() {
   }, [id]);
 
   const handleClaimRedPacket = async () => {
-    if (!account || !id || !password || !redPacketInfo) return;
+    if (!address || !id || !password || !redPacketInfo) return;
 
     try {
       const transaction = claimRedPacket({
